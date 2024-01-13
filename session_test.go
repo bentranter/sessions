@@ -5,14 +5,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gorilla/securecookie"
 )
 
 func TestSessionGetNonNil(t *testing.T) {
 	t.Parallel()
 
-	s := New(securecookie.GenerateRandomKey(32))
+	s := New(GenerateRandomKey(32))
 
 	t.Run("get should never return a nil session", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -27,7 +25,7 @@ func TestSessionGetNonNil(t *testing.T) {
 func TestSessionSetGet(t *testing.T) {
 	t.Parallel()
 
-	s := New(securecookie.GenerateRandomKey(32))
+	s := New(GenerateRandomKey(32))
 
 	t.Run("save session data to the current request", func(t *testing.T) {
 		rr := httptest.NewRecorder()
@@ -52,7 +50,7 @@ func TestSessionSetGet(t *testing.T) {
 func TestSessionList(t *testing.T) {
 	t.Parallel()
 
-	s := New(securecookie.GenerateRandomKey(32))
+	s := New(GenerateRandomKey(32))
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -71,7 +69,7 @@ func TestSessionList(t *testing.T) {
 func TestSessionDelete(t *testing.T) {
 	t.Parallel()
 
-	s := New(securecookie.GenerateRandomKey(32))
+	s := New(GenerateRandomKey(32))
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -109,7 +107,7 @@ func TestSessionDelete(t *testing.T) {
 func TestSessionFlashes(t *testing.T) {
 	t.Parallel()
 
-	s := New(securecookie.GenerateRandomKey(32))
+	s := New(GenerateRandomKey(32))
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -133,7 +131,7 @@ func TestSessionFlashes(t *testing.T) {
 func TestSessionManagerIntegration(t *testing.T) {
 	t.Parallel()
 
-	secret := securecookie.GenerateRandomKey(32)
+	secret := GenerateRandomKey(32)
 	s := New(secret)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
