@@ -104,6 +104,26 @@ func TestSessionDelete(t *testing.T) {
 	}
 }
 
+func TestSessionReset(t *testing.T) {
+	t.Parallel()
+
+	s := New(GenerateRandomKey(32))
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	s.Set(rr, req, "key", "value")
+	v := s.Get(req, "key")
+	if v == nil {
+		t.Fatal("got nil")
+	}
+
+	s.Reset(rr, req)
+	v = s.Get(req, "key")
+	if v != nil {
+		t.Fatalf("expected nil, got %v", v)
+	}
+}
+
 func TestSessionFlashes(t *testing.T) {
 	t.Parallel()
 
