@@ -38,9 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package sessions
 
 import (
+	"bytes"
 	"context"
 	"encoding/gob"
-	"log"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -61,6 +62,7 @@ var (
 func init() {
 	// Register the encodings used in this package with gob such that we can
 	// successfully save session data in the session.
+	gob.Register([]interface{}{})
 	gob.Register(map[string]interface{}{})
 	gob.Register(&session{})
 }
@@ -85,8 +87,9 @@ func GenerateRandomKey(length int) []byte {
 // A Session manages setting and getting data from the cookie that stores the
 // session data.
 type Session struct {
-	sc   *securecookie.SecureCookie
-	name string
+	sc    *securecookie.SecureCookie
+	name  string
+	quiet bool
 }
 
 // Options to customize the behaviour of the session.
@@ -97,6 +100,12 @@ type Options struct {
 	// MaxAge of the cookie before expiry (default is 365 days). Set it to
 	// -1 for no expiry.
 	MaxAge int
+
+	// Quiet defines whether or not to suppress all error and warning messages
+	// from the library. Defaults to false, since when correctly used, these
+	// messages should never appear. Setting to true may suppress critical
+	// error and warning messages.
+	Quiet bool
 }
 
 // New creates a new session manager with the given key.
@@ -109,6 +118,7 @@ func New(secret []byte, opts ...Options) *Session {
 	if o.Name == "" {
 		o.Name = defaultSessionName
 	}
+
 	switch o.MaxAge {
 	case 0:
 		// Default to one year, since some browsers don't set their cookies
@@ -120,9 +130,11 @@ func New(secret []byte, opts ...Options) *Session {
 
 	sc := securecookie.New(secret, nil)
 	sc.MaxAge(o.MaxAge)
+
 	return &Session{
-		sc:   sc,
-		name: o.Name,
+		sc:    sc,
+		name:  o.Name,
+		quiet: o.Quiet,
 	}
 }
 
@@ -172,7 +184,9 @@ func (s *Session) fromReq(r *http.Request) *session {
 
 	ss := &session{}
 	if err := s.sc.Decode(s.name, cookie.Value, ss); err != nil {
-		log.Println("[error] failed to decode session from cookie:", err)
+		if !s.quiet {
+			fmt.Printf("sessions: [ERROR] failed to decode session from cookie: %+v\n", err)
+		}
 		ss.init()
 		return ss
 	}
@@ -188,7 +202,9 @@ func (s *Session) saveCtx(w http.ResponseWriter, r *http.Request, session *sessi
 
 	encoded, err := s.sc.Encode(s.name, session)
 	if err != nil {
-		log.Println("error encoding cookie:", err)
+		if !s.quiet {
+			fmt.Printf("sessions: [ERROR} failed to encode cookie: %+v\n", err)
+		}
 		return
 	}
 
@@ -261,4 +277,79 @@ func (s *Session) Flashes(w http.ResponseWriter, r *http.Request) map[string]int
 
 	s.saveCtx(w, r, data)
 	return values
+}
+
+type responseWrapper struct {
+	b *bytes.Buffer       // Buffer to write to.
+	c int                 // Storage for status code.
+	w http.ResponseWriter // Underlying response writer.
+}
+
+func (rw *responseWrapper) Header() http.Header {
+	return rw.w.Header()
+}
+
+func (rw *responseWrapper) Write(data []byte) (int, error) {
+	return rw.b.Write(data)
+}
+
+func (rw *responseWrapper) WriteHeader(statusCode int) {
+	rw.c = statusCode
+}
+
+func (rw *responseWrapper) Flush() (int64, error) {
+	rw.w.WriteHeader(rw.c)
+	return rw.b.WriteTo(rw.w)
+}
+
+func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		before := s.fromReq(r)
+		s.saveCtx(w, r, before)
+
+		wrapper := &responseWrapper{
+			b: &bytes.Buffer{},
+			c: 200,
+			w: w,
+		}
+
+		next.ServeHTTP(wrapper, r)
+		after := s.fromReq(r)
+		s.saveCtx(wrapper, r, after)
+
+		if _, err := wrapper.Flush(); err != nil {
+			if !s.quiet {
+				fmt.Printf("sessions: [ERROR] failed to write http response in call to sessions.TemplMiddleware: %v\n", err)
+			}
+		}
+	})
+}
+
+// FlashesCtx returns all flash messages as a map[string]interace{} for the
+// given context.
+//
+// This method is intended to be used with the https://github.com/a-h/templ
+// library. It requires the use of the sessions.TemplMiddleware, which ensures
+// that  every incoming request has the session data decoded into the context.
+//
+// When called, the flash messages are cleared on subsequent requests.
+func (s *Session) FlashesCtx(ctx context.Context) map[string]interface{} {
+	flashes := make(map[string]interface{})
+	v := ctx.Value(sessionCtxKey)
+
+	if v != nil {
+		ss, ok := v.(*session)
+		if ok {
+			for k, v := range ss.Flashes {
+				flashes[k] = v
+			}
+			clear(ss.Flashes)
+			return flashes
+		}
+	}
+
+	if !s.quiet {
+		fmt.Printf("sessions: [WARNING] FlashesCtx was called but the session is nil - did you remember to wrap your handler in sessions.TemplMiddleware?\n")
+	}
+	return flashes
 }
