@@ -302,11 +302,25 @@ func (rw *responseWrapper) Flush() (int64, error) {
 	return rw.b.WriteTo(rw.w)
 }
 
+// TemplMiddleware ensures that the session data is always available on the
+// request context for any handler wrapped by the middleware.
+//
+// This is in contrast to the default behaviour of the library, which is to
+// lazily extract the session data from the cookie into the request context
+// whenever any session methods are called.
+//
+// This method makes it possible to access session data in templ's global ctx
+// instance, for example, you can use the sessions.FlashesCtx method:
+//
+//	for key, val := range session.FlashesCtx(ctx) {
+//		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
+//	}
 func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		before := s.fromReq(r)
 		s.saveCtx(w, r, before)
 
+		// TODO Use a buffer pool for the &bytes.Buffer{} instances.
 		wrapper := &responseWrapper{
 			b: &bytes.Buffer{},
 			c: 200,
@@ -333,6 +347,13 @@ func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 // that  every incoming request has the session data decoded into the context.
 //
 // When called, the flash messages are cleared on subsequent requests.
+//
+// This method makes it possible to access session data in templ's global ctx
+// instance, for example, you can use the sessions.FlashesCtx method:
+//
+//	for key, val := range session.FlashesCtx(ctx) {
+//		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
+//	}
 func (s *Session) FlashesCtx(ctx context.Context) map[string]interface{} {
 	flashes := make(map[string]interface{})
 	v := ctx.Value(sessionCtxKey)
