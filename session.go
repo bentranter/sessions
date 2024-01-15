@@ -43,6 +43,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/securecookie"
@@ -316,13 +317,20 @@ func (rw *responseWrapper) Flush() (int64, error) {
 //		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
 //	}
 func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return new(bytes.Buffer)
+		},
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		before := s.fromReq(r)
 		s.saveCtx(w, r, before)
 
-		// TODO Use a buffer pool for the &bytes.Buffer{} instances.
+		b := pool.Get().(*bytes.Buffer)
+		b.Reset()
 		wrapper := &responseWrapper{
-			b: &bytes.Buffer{},
+			b: b,
 			c: 200,
 			w: w,
 		}
@@ -336,6 +344,8 @@ func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 				fmt.Printf("sessions: [ERROR] failed to write http response in call to sessions.TemplMiddleware: %v\n", err)
 			}
 		}
+
+		pool.Put(b)
 	})
 }
 
