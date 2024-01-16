@@ -381,3 +381,20 @@ func TestTemplMiddleware(t *testing.T) {
 		t.Errorf("expected an empty string but got %s", body)
 	}
 }
+
+func BenchmarkTemplMiddleware(b *testing.B) {
+	s := New(GenerateRandomKey(32))
+
+	h := s.TemplMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Key", "value")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("hello, world!"))
+	}))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	for i := 0; i < b.N; i++ {
+		h.ServeHTTP(w, r)
+	}
+}

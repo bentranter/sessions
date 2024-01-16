@@ -324,9 +324,20 @@ func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		before := s.fromReq(r)
-		s.saveCtx(w, r, before)
+		// Get the session from the cookie, if it's present and valid.
+		session := &session{}
+		if cookie, err := r.Cookie(s.name); err != nil {
+			session.init()
+		} else {
+			if err := s.sc.Decode(s.name, cookie.Value, session); err != nil {
+				if !s.quiet {
+					fmt.Printf("sessions: [ERROR] failed to decode session from cookie: %+v\n", err)
+				}
+				session.init()
+			}
+		}
 
+		// Create a response wrapper instance to execute the handler with.
 		b := pool.Get().(*bytes.Buffer)
 		b.Reset()
 		wrapper := &responseWrapper{
@@ -335,9 +346,31 @@ func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 			w: w,
 		}
 
-		next.ServeHTTP(wrapper, r)
-		after := s.fromReq(r)
-		s.saveCtx(wrapper, r, after)
+		// Set the session on the request's context so that it's accessible on
+		// the handler.
+		ctx := context.WithValue(r.Context(), sessionCtxKey, session)
+
+		// Execute the handler.
+		next.ServeHTTP(wrapper, r.WithContext(ctx))
+
+		// Encode the updated session so that we can set it as a cookie.
+		encoded, err := s.sc.Encode(s.name, session)
+		if err != nil {
+			if !s.quiet {
+				fmt.Printf("sessions: [ERROR} failed to encode cookie: %+v\n", err)
+			}
+			return
+		}
+
+		http.SetCookie(wrapper, &http.Cookie{
+			Name:     s.name,
+			MaxAge:   defaultMaxAge,
+			Expires:  time.Now().UTC().Add(time.Duration(defaultMaxAge * time.Second)),
+			Value:    encoded,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+		})
 
 		if _, err := wrapper.Flush(); err != nil {
 			if !s.quiet {
