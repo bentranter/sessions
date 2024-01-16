@@ -49,6 +49,9 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
+// Version is the released version of the library.
+const Version = "1.0.1"
+
 type sessionCtxKeyType struct{}
 
 const (
