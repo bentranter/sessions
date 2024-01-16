@@ -50,7 +50,7 @@ import (
 )
 
 // Version is the released version of the library.
-const Version = "1.0.1"
+const Version = "1.1.0"
 
 type sessionCtxKeyType struct{}
 
