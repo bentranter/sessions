@@ -50,7 +50,7 @@ import (
 )
 
 // Version is the released version of the library.
-const Version = "1.1.0"
+const Version = "1.2.0"
 
 type sessionCtxKeyType struct{}
 
@@ -417,6 +417,38 @@ func (s *Session) FlashesCtx(ctx context.Context) map[string]interface{} {
 
 	if !s.quiet {
 		fmt.Printf("sessions: [WARNING] FlashesCtx was called but the session is nil - did you remember to wrap your handler in sessions.TemplMiddleware?\n")
+	}
+	return flashes
+}
+
+// FlashesCtx returns all flash messages as a map[string]interace{} for the
+// given context.
+//
+// This method is intended to be used with the https://github.com/a-h/templ
+// library. It requires the use of the sessions.TemplMiddleware, which ensures
+// that  every incoming request has the session data decoded into the context.
+//
+// When called, the flash messages are cleared on subsequent requests.
+//
+// This method makes it possible to access session data in templ's global ctx
+// instance, for example, you can use the sessions.FlashesCtx method:
+//
+//	for key, val := range sessions.FlashesCtx(ctx) {
+//		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
+//	}
+func FlashesCtx(ctx context.Context) map[string]interface{} {
+	flashes := make(map[string]interface{})
+	v := ctx.Value(sessionCtxKey)
+
+	if v != nil {
+		ss, ok := v.(*session)
+		if ok {
+			for k, v := range ss.Flashes {
+				flashes[k] = v
+			}
+			clear(ss.Flashes)
+			return flashes
+		}
 	}
 	return flashes
 }

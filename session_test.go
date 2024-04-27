@@ -382,6 +382,104 @@ func TestTemplMiddleware(t *testing.T) {
 	}
 }
 
+func TestTemplMiddlewareGlobal(t *testing.T) {
+	t.Parallel()
+
+	s := New(GenerateRandomKey(32))
+
+	key := "key"
+	flash := "message from flash"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("cookies: %+v\n", r.Cookies())
+		value := ""
+
+		// This is the global call, rather that the one that's on a `Session`
+		// instance.
+		flashes := FlashesCtx(r.Context())
+		if v := flashes[key]; v != nil {
+			if s, ok := v.(string); ok {
+				value = s
+			}
+		}
+
+		w.Write([]byte(value))
+	})
+	mux.HandleFunc("/flash", func(w http.ResponseWriter, r *http.Request) {
+		s.Flash(w, r, key, flash)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := httptest.NewServer(s.TemplMiddleware(mux))
+	defer srv.Close()
+
+	// Hit the main handler to confirm that the flash map remains empty.
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if string(body) != "" {
+		t.Fatalf("expected body to be an empty string, got %s\n", body)
+	}
+
+	// Hit the flash handler to set a flash message, then write the cookie onto the subsequent
+	// requests.
+	resp, err = http.Get(srv.URL + "/flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected no content but got %d", resp.StatusCode)
+	}
+
+	// Hit the main handler again to confirm the flash messages were applied.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+
+	rawcookies := resp.Header["Set-Cookie"]
+	req.Header.Set("Cookie", rawcookies[len(rawcookies)-1])
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if string(body) != flash {
+		t.Errorf("expected %s but got %s", flash, body)
+	}
+
+	// Hit the main handler one last time to confirm the flash was cleared.
+	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+
+	rawcookies = resp.Header["Set-Cookie"]
+	req.Header.Set("Cookie", rawcookies[len(rawcookies)-1])
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if string(body) != "" {
+		t.Errorf("expected an empty string but got %s", body)
+	}
+}
+
 func BenchmarkTemplMiddleware(b *testing.B) {
 	s := New(GenerateRandomKey(32))
 
