@@ -3,7 +3,7 @@
 ![testing](https://github.com/bentranter/sessions/actions/workflows/test.yml/badge.svg)
 [![godoc](https://godoc.org/github.com/bentranter/sessions?status.svg)](https://godoc.org/github.com/bentranter/sessions)
 
-HTTP session cookie management for Go. It allows you to set both data that persists between requests (session data), and data that persists until the next request (flash data).
+Package `sessions` provides HTTP session cookie management for Go. It allows you to set both data that persists between requests (session data), and data that persists until the next request (flash data).
 
 Unlike typical session libraries for Go, sessions uses the request's context for storage within the same request liftime, allowing you to access the session between multiple handlers or HTTP middleware, as well as within test cases that do not use an HTTP server.
 
@@ -80,4 +80,14 @@ http.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
     session.Reset(w, r)
     http.Redirect(w, r, "/", http.StatusFound)
 })
+```
+
+### Using with [`templ`](https://github.com/a-h/templ)
+
+```templ
+templ FlashComponent() {
+	for key, val := range session.FlashesCtx(ctx) {
+		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
+	}
+}
 ```

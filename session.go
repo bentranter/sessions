@@ -43,14 +43,16 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/gorilla/securecookie"
 )
 
 // Version is the released version of the library.
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 type sessionCtxKeyType struct{}
 
@@ -62,6 +64,15 @@ const (
 var (
 	sessionCtxKey = sessionCtxKeyType{}
 )
+
+type cborSerializer struct{}
+
+func (cs *cborSerializer) Serialize(src interface{}) ([]byte, error) {
+	return cbor.Marshal(src)
+}
+func (cs *cborSerializer) Deserialize(src []byte, dst interface{}) error {
+	return cbor.Unmarshal(src, dst)
+}
 
 func init() {
 	// Register the encodings used in this package with gob such that we can
@@ -134,6 +145,7 @@ func New(secret []byte, opts ...Options) *Session {
 
 	sc := securecookie.New(secret, nil)
 	sc.MaxAge(o.MaxAge)
+	sc.SetSerializer(&cborSerializer{})
 
 	return &Session{
 		sc:    sc,
@@ -319,7 +331,15 @@ func (rw *responseWrapper) Flush() (int64, error) {
 //	for key, val := range session.FlashesCtx(ctx) {
 //		<div>{ key }: { fmt.Sprintf("%v", val) }</div>
 //	}
-func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
+//
+// If any `skipPaths` are provided, TemplMiddleware will not execute for those
+// paths. These paths must begin with a `/` in order to match any requests. In
+// general, having `TemplMiddleware` execute on every handler will not cause
+// any issues, but in cases where your handler's `ResponseWriter` satisfies an
+// additional interface (i.e., `http.Hijacker`), you should skip those paths,
+// as the middleware inserts its own `http.ResponseWriter` that does not
+// implement those additional interfaces.
+func (s *Session) TemplMiddleware(next http.Handler, skipPaths ...string) http.Handler {
 	pool := &sync.Pool{
 		New: func() interface{} {
 			return new(bytes.Buffer)
@@ -327,6 +347,14 @@ func (s *Session) TemplMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip execution of the middleware if required.
+		for _, skipPath := range skipPaths {
+			if strings.HasPrefix(r.URL.Path, skipPath) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		// Get the session from the cookie, if it's present and valid.
 		session := &session{}
 		if cookie, err := r.Cookie(s.name); err != nil {
