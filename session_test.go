@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -296,7 +297,6 @@ func TestTemplMiddleware(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("cookies: %+v\n", r.Cookies())
 		value := ""
 
 		flashes := s.FlashesCtx(r.Context())
@@ -392,7 +392,6 @@ func TestTemplMiddlewareGlobal(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("cookies: %+v\n", r.Cookies())
 		value := ""
 
 		// This is the global call, rather that the one that's on a `Session`
@@ -410,8 +409,19 @@ func TestTemplMiddlewareGlobal(t *testing.T) {
 		s.Flash(w, r, key, flash)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("/skip-me", func(w http.ResponseWriter, r *http.Request) {
+		// Use the Templ-accessible middleware, expecting that it will return
+		// nil.
+		flashes := FlashesCtx(r.Context())
+		if !reflect.DeepEqual(flashes, map[string]interface{}{}) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
-	srv := httptest.NewServer(s.TemplMiddleware(mux))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := httptest.NewServer(s.TemplMiddleware(mux, "/skip-me"))
 	defer srv.Close()
 
 	// Hit the main handler to confirm that the flash map remains empty.
@@ -439,10 +449,22 @@ func TestTemplMiddlewareGlobal(t *testing.T) {
 		t.Errorf("expected no content but got %d", resp.StatusCode)
 	}
 
-	// Hit the main handler again to confirm the flash messages were applied.
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	// Hit the `/skip-me` handler to confirm that no session data is available.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/skip-me", nil)
 
 	rawcookies := resp.Header["Set-Cookie"]
+	req.Header.Set("Cookie", rawcookies[len(rawcookies)-1])
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := resp.StatusCode; code != http.StatusNoContent {
+		t.Errorf("expected status 204 but got %d\n", code)
+	}
+
+	// Hit the main handler again to confirm the flash messages were applied.
+	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/", nil)
 	req.Header.Set("Cookie", rawcookies[len(rawcookies)-1])
 
 	resp, err = http.DefaultClient.Do(req)
