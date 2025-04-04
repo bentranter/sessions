@@ -102,9 +102,10 @@ func GenerateRandomKey(length int) []byte {
 // A Session manages setting and getting data from the cookie that stores the
 // session data.
 type Session struct {
-	sc    *securecookie.SecureCookie
-	name  string
-	quiet bool
+	sc     *securecookie.SecureCookie
+	name   string
+	quiet  bool
+	secure bool
 }
 
 // Options to customize the behaviour of the session.
@@ -121,6 +122,12 @@ type Options struct {
 	// messages should never appear. Setting to true may suppress critical
 	// error and warning messages.
 	Quiet bool
+
+	// ForceInsecure causes the session cookie's Secure attribute, which defaults
+	// to true, to be false. This should be used specifically in local
+	// development when using browsers like Safari that do not allow cookies with
+	// Secure=true to be set on non-HTTPS requests.
+	ForceInsecure bool
 }
 
 // New creates a new session manager with the given key.
@@ -143,14 +150,21 @@ func New(secret []byte, opts ...Options) *Session {
 		o.MaxAge = 0
 	}
 
+	// Default to using Secure=true on the session cookies.
+	secure := true
+	if o.ForceInsecure {
+		secure = false
+	}
+
 	sc := securecookie.New(secret, nil)
 	sc.MaxAge(o.MaxAge)
 	sc.SetSerializer(&cborSerializer{})
 
 	return &Session{
-		sc:    sc,
-		name:  o.Name,
-		quiet: o.Quiet,
+		sc:     sc,
+		name:   o.Name,
+		quiet:  o.Quiet,
+		secure: secure,
 	}
 }
 
@@ -231,7 +245,7 @@ func (s *Session) saveCtx(w http.ResponseWriter, r *http.Request, session *sessi
 		Value:    encoded,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   s.secure,
 	})
 }
 
@@ -400,7 +414,7 @@ func (s *Session) TemplMiddleware(next http.Handler, skipPaths ...string) http.H
 			Value:    encoded,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   true,
+			Secure:   s.secure,
 		})
 
 		if _, err := wrapper.Flush(); err != nil {
