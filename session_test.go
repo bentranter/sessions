@@ -518,3 +518,24 @@ func BenchmarkTemplMiddleware(b *testing.B) {
 		h.ServeHTTP(w, r)
 	}
 }
+
+func TestSessionInsecure(t *testing.T) {
+	key := GenerateRandomKey(32)
+
+	secureSession := New(key)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	secureSession.Set(w, r, "key", "value")
+	if setCookie := w.Result().Header.Get("Set-Cookie"); !strings.Contains(setCookie, "Secure") {
+		t.Errorf("expected set-cookie header to contain 'Secure', but got %s", setCookie)
+	}
+
+	insecureSession := New(key, Options{ForceInsecure: true})
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/", nil)
+	insecureSession.Set(w, r, "key", "value")
+	if setCookie := w.Result().Header.Get("Set-Cookie"); strings.Contains(setCookie, "Secure") {
+		t.Errorf("expected set-cookie header not to contain 'Secure', but got %s", setCookie)
+	}
+
+}
